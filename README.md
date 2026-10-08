@@ -13,7 +13,7 @@ Currently implemented features:
 
 
 ## This app is guaranteed to have bugs in its current state (alpha-0.0.1-rev4)
-* If any bugs are to be found, please open up an [issue](https://github.com/nct32/NotesPlus/issues) and clearly explain the bug with steps to reproduce the bug (i expect A LOT to come in).
+* If any bugs are to be found, please open up an [issue](https://github.com/nct32/NotesPlus/issues) and clearly explain the bug with steps to reproduce the bug.
 
 ## Requirements
 * Android 6+ (API 23)
