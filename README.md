@@ -9,7 +9,8 @@ Currently implemented features:
 * Reminders [BETA]
 
 ## Downloads
-* [alpha-0.0.1-rev4](https://github.com/nct32/NotesPlus/releases/download/alpha-0.0.1-rev4/app-debug.apk)
+* [alpha-0.0.1-rev4 (stable)](https://github.com/nct32/NotesPlus/releases/tag/alpha-0.0.1-rev4)
+* [alpha-0.0.2 (latest)](https://github.com/nct32/NotesPlus/releases/tag/alpha-0.0.2)
 
 
 ## This app is guaranteed to have bugs in its current state (alpha-0.0.1-rev4)
