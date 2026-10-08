@@ -34,8 +34,11 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material.icons.rounded.WavingHand
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -45,14 +48,19 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +72,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -79,6 +88,7 @@ import com.nct32.notesplus.ui.dialogs.DeleteNoteDialog
 import com.nct32.notesplus.ui.dialogs.MoveToFolderDialog
 import com.nct32.notesplus.ui.dialogs.NewFolderDialog
 import com.nct32.notesplus.ui.theme.NotesTheme
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /**
@@ -107,7 +117,29 @@ fun NoteListScreen(
     val selectedFolder by viewModel.selectedFolder.collectAsStateWithLifecycle()
     val layout by viewModel.layout.collectAsStateWithLifecycle()
     val welcomeDismissed by viewModel.welcomeDismissed.collectAsStateWithLifecycle()
+    val availableUpdate by viewModel.availableUpdate.collectAsStateWithLifecycle()
+    val updateDialogVisible by viewModel.updateDialogVisible.collectAsStateWithLifecycle()
+    val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
+    val downloadError by viewModel.downloadError.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // One auto update check per app process: the first composition of the Notes tab triggers
+    // it (the UpdateManager guards against re-checks within the process and honors the
+    // auto-check setting).
+    LaunchedEffect(Unit) {
+        viewModel.checkForUpdate(context)
+    }
+
+    // Surface a failed download as a snackbar, then clear the error so a later failure
+    // with the same message is shown again.
+    LaunchedEffect(downloadError) {
+        downloadError?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearDownloadError()
+        }
+    }
 
     // Dialog state.
     var showNewFolderDialog by remember { mutableStateOf(false) }
@@ -138,6 +170,9 @@ fun NoteListScreen(
         },
         floatingActionButton = {
             AddNoteAction(onClick = onAddNote)
+        },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState)
         }
     ) { innerPadding ->
         Column(
@@ -160,6 +195,22 @@ fun NoteListScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 )
+            }
+
+            // Dismissible update banner: shown while a newer release is available and the
+            // user chose "Remind me later" (the dialog is hidden, the update stays offered
+            // here for the rest of the session). Hidden while a download is in flight.
+            availableUpdate?.let { update ->
+                if (!updateDialogVisible && downloadProgress == null) {
+                    UpdateBanner(
+                        tag = update.release.tag_name,
+                        onDownload = { viewModel.downloadUpdate(context) },
+                        onDismiss = viewModel::dismissUpdate,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
             }
 
             FolderChipsRow(
@@ -264,6 +315,28 @@ fun NoteListScreen(
             onPick = { folder -> viewModel.moveNoteToFolder(note, folder) }
         )
     }
+
+    // "Update available" dialog: shown while the UpdateManager's dialog flag is set (i.e.
+    // a check found an unskipped newer release and the user hasn't dismissed or skipped it).
+    if (updateDialogVisible) {
+        availableUpdate?.let { update ->
+            UpdateAvailableDialog(
+                tag = update.tag,
+                releaseName = update.release.name,
+                onUpdateNow = { viewModel.downloadUpdate(context) },
+                onRemindLater = viewModel::dismissUpdate,
+                onSkipVersion = viewModel::skipVersion
+            )
+        }
+    }
+
+    // Cancellable download progress dialog (shown while an APK download is in flight).
+    downloadProgress?.let { progress ->
+        DownloadProgressDialog(
+            progress = progress,
+            onCancel = viewModel::cancelDownload
+        )
+    }
 }
 
 /**
@@ -313,6 +386,162 @@ private fun WelcomeBanner(
             }
         }
     }
+}
+
+/**
+ * Dismissible update banner: a small Material 3 card above the notes list announcing that a
+ * newer release is available, with a [Button] to download + install it and an X to dismiss
+ * for the current session only.
+ */
+@Composable
+private fun UpdateBanner(
+    tag: String,
+    onDownload: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.SystemUpdate,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Notes+ $tag is available",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    text = "Download and install the latest release.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Button(onClick = onDownload) {
+                Text("Download")
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Dismiss update notification"
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Material 3 "Update available" dialog: offers a newer release with three choices —
+ * "Update now" (primary, starts the APK download + install flow), "Remind me later"
+ * (dismisses the dialog; the [UpdateBanner] keeps offering the update), and "Skip this
+ * version" (persists the release tag so this exact version is never offered again; a newer
+ * release will still prompt). Tapping outside behaves the same as "Remind me later".
+ */
+@Composable
+private fun UpdateAvailableDialog(
+    tag: String,
+    releaseName: String?,
+    onUpdateNow: () -> Unit,
+    onRemindLater: () -> Unit,
+    onSkipVersion: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onRemindLater,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Update,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        title = { Text("Update available") },
+        text = {
+            Column {
+                Text(updateReadyText(tag, releaseName))
+                releaseName?.let { name ->
+                    if (name != tag) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onUpdateNow) {
+                Text("Update now")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onRemindLater) {
+                    Text("Remind me later")
+                }
+                TextButton(onClick = onSkipVersion) {
+                    Text("Skip this version")
+                }
+            }
+        }
+    )
+}
+
+/**
+ * The dialog's main line: "Notes+ <tag> is ready to install." — the release name is
+ * included when it is present and distinct from the tag.
+ */
+private fun updateReadyText(tag: String, releaseName: String?): String =
+    if (!releaseName.isNullOrBlank() && releaseName != tag) {
+        "Notes+ $releaseName ($tag) is ready to install."
+    } else {
+        "Notes+ $tag is ready to install."
+    }
+
+/**
+ * Cancellable Material 3 progress dialog shown while a release APK is downloading:
+ * a determinate progress bar plus the current percentage.
+ */
+@Composable
+private fun DownloadProgressDialog(
+    progress: Float,
+    onCancel: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Downloading update") },
+        text = {
+            Column {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "${(progress * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
@@ -838,6 +1067,24 @@ private fun NoteListScreenPreview() {
         NoteListScreen(
             onNoteClick = {},
             onAddNote = {}
+        )
+    }
+}
+
+/**
+ * Preview of the "Update available" dialog in the light color scheme, rendered with a
+ * representative tag and release name.
+ */
+@Preview(showBackground = true, device = "spec:width=411dp,height=891dp")
+@Composable
+private fun UpdateAvailableDialogPreview() {
+    NotesTheme {
+        UpdateAvailableDialog(
+            tag = "alpha-0.0.3",
+            releaseName = "Version alpha-0.0.3",
+            onUpdateNow = {},
+            onRemindLater = {},
+            onSkipVersion = {}
         )
     }
 }

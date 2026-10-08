@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider paths: where downloaded release APKs live so the system package
+     installer can read them via a content:// URI. -->
+<paths>
+    <external-files-path
+        name="updates"
+        path="updates" />
+</paths>

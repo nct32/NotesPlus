@@ -3,6 +3,7 @@ package com.nct32.notesplus.settings
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.nct32.notesplus.update.ReleaseChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -165,6 +166,37 @@ class SettingsStore(private val persistence: SettingsPersistence) {
      */
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    private val _releaseChannel = MutableStateFlow(
+        ReleaseChannel.fromString(persistence.getString(KEY_RELEASE_CHANNEL, DEFAULT_RELEASE_CHANNEL.name))
+    )
+    /**
+     * The update channel the user has opted into (default: [ReleaseChannel.Stable]).
+     * Controls which GitHub releases the update check offers.
+     */
+    val releaseChannel: StateFlow<ReleaseChannel> = _releaseChannel.asStateFlow()
+
+    private val _autoCheckUpdates = MutableStateFlow(
+        persistence.getBoolean(KEY_AUTO_CHECK_UPDATES, DEFAULT_AUTO_CHECK_UPDATES)
+    )
+    /**
+     * Whether the app automatically checks for updates in the background (default:
+     * [DEFAULT_AUTO_CHECK_UPDATES]). When `false`, updates are only found when the user
+     * explicitly checks.
+     */
+    val autoCheckUpdates: StateFlow<Boolean> = _autoCheckUpdates.asStateFlow()
+
+    private val _skippedReleaseTag = MutableStateFlow(
+        readSkippedReleaseTag(persistence)
+    )
+    /**
+     * The tag of the release the user chose to skip (default: `null`). While set, the update
+     * check never offers that release again.
+     *
+     * Persistence note: `SharedPreferences` has no nullable string, so `null` is stored as the
+     * empty string (see [readSkippedReleaseTag] / [setSkippedReleaseTag]).
+     */
+    val skippedReleaseTag: StateFlow<String?> = _skippedReleaseTag.asStateFlow()
+
     /** Marks the first-launch welcome banner as dismissed and persists the choice. */
     fun setWelcomeDismissed(dismissed: Boolean) {
         persistence.putBoolean(KEY_WELCOME_DISMISSED, dismissed)
@@ -177,18 +209,53 @@ class SettingsStore(private val persistence: SettingsPersistence) {
         _themeMode.value = mode
     }
 
+    /** Sets the update channel and persists the choice. */
+    fun setReleaseChannel(channel: ReleaseChannel) {
+        persistence.putString(KEY_RELEASE_CHANNEL, channel.name)
+        _releaseChannel.value = channel
+    }
+
+    /** Enables/disables the automatic background update check and persists the choice. */
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        persistence.putBoolean(KEY_AUTO_CHECK_UPDATES, enabled)
+        _autoCheckUpdates.value = enabled
+    }
+
+    /**
+     * Sets the skipped release tag and persists it. Pass `null` to clear the skip (the empty
+     * string is persisted for `null`, see [skippedReleaseTag]).
+     */
+    fun setSkippedReleaseTag(tag: String?) {
+        persistence.putString(KEY_SKIPPED_RELEASE_TAG, tag.orEmpty())
+        _skippedReleaseTag.value = tag
+    }
+
     companion object {
         const val KEY_AUTOCORRECT_ENABLED = "autocorrect_enabled"
         const val KEY_SUMMARIZE_ENABLED = "summarize_enabled"
         const val KEY_REWRITE_ENABLED = "rewrite_enabled"
         const val KEY_WELCOME_DISMISSED = "welcome_dismissed"
         const val KEY_THEME_MODE = "theme_mode"
+        const val KEY_RELEASE_CHANNEL = "release_channel"
+        const val KEY_AUTO_CHECK_UPDATES = "auto_check_updates"
+        const val KEY_SKIPPED_RELEASE_TAG = "skipped_release_tag"
 
         const val DEFAULT_AUTOCORRECT_ENABLED = true
         const val DEFAULT_SUMMARIZE_ENABLED = true
         const val DEFAULT_REWRITE_ENABLED = true
         const val DEFAULT_WELCOME_DISMISSED = false
         val DEFAULT_THEME_MODE: ThemeMode = ThemeMode.System
+        val DEFAULT_RELEASE_CHANNEL: ReleaseChannel = ReleaseChannel.Stable
+        const val DEFAULT_AUTO_CHECK_UPDATES = true
+
+        /**
+         * Reads the persisted skipped release tag, mapping the empty-string sentinel (used for
+         * "no skip", since `SharedPreferences` cannot store `null`) back to `null`.
+         */
+        fun readSkippedReleaseTag(persistence: SettingsPersistence): String? {
+            val raw = persistence.getString(KEY_SKIPPED_RELEASE_TAG, "")
+            return raw.ifEmpty { null }
+        }
     }
 }
 
@@ -213,5 +280,13 @@ object AppSettings {
         if (store == null) {
             store = SettingsStore(SharedPreferencesSettingsPersistence.create(context))
         }
+    }
+
+    /**
+     * Replaces the shared store with a fresh in-memory one (plain JVM unit tests only, so a
+     * test that mutated a setting never leaks into another test).
+     */
+    fun resetForTesting() {
+        store = SettingsStore(InMemorySettingsPersistence())
     }
 }

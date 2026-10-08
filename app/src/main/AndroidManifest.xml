@@ -2,7 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Fetch release metadata and download APKs from GitHub. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Offer to install downloaded APKs via the system package installer (Android 8+). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Post local notifications when a reminder is due (runtime prompt on Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Exact due-time alarms (granted by default on Android 12; opt-in on Android 13+).
@@ -47,6 +50,17 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- Shares downloaded release APKs with the system package installer. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

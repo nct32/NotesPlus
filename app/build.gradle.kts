@@ -16,7 +16,7 @@ android {
         minSdk = 23
         targetSdk = 37
         versionCode = 1
-        versionName = "alpha-0.0.1-rev4"
+        versionName = "alpha-0.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -73,6 +73,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.core)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.logging.interceptor)
     implementation(libs.moshi.kotlin)
     implementation(libs.okhttp)

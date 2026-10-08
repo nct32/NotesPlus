@@ -1,7 +1,9 @@
 package com.nct32.notesplus.settings
 
+import com.nct32.notesplus.update.ReleaseChannel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +37,12 @@ class SettingsStoreTest {
         assertFalse(store.welcomeDismissed.value)
         // The theme follows the system by default.
         assertEquals(ThemeMode.System, store.themeMode.value)
+        // The update channel defaults to Stable.
+        assertEquals(ReleaseChannel.Stable, store.releaseChannel.value)
+        // Auto-check is on by default.
+        assertTrue(store.autoCheckUpdates.value)
+        // No release has been skipped by default.
+        assertNull(store.skippedReleaseTag.value)
     }
 
     @Test
@@ -73,6 +81,101 @@ class SettingsStoreTest {
 
         val store = SettingsStore(persistence)
         assertEquals(ThemeMode.System, store.themeMode.value)
+    }
+
+    @Test
+    fun setReleaseChannel_updates_stateflow_and_persists() {
+        val persistence = FakePersistence()
+        val store = SettingsStore(persistence)
+
+        store.setReleaseChannel(ReleaseChannel.Experimental)
+        assertEquals(ReleaseChannel.Experimental, store.releaseChannel.value)
+        assertEquals("Experimental", persistence.getString(SettingsStore.KEY_RELEASE_CHANNEL, "Stable"))
+
+        store.setReleaseChannel(ReleaseChannel.Stable)
+        assertEquals(ReleaseChannel.Stable, store.releaseChannel.value)
+        assertEquals("Stable", persistence.getString(SettingsStore.KEY_RELEASE_CHANNEL, "Stable"))
+    }
+
+    @Test
+    fun releaseChannel_survives_restart() {
+        val persistence = FakePersistence()
+        val first = SettingsStore(persistence)
+        first.setReleaseChannel(ReleaseChannel.Experimental)
+
+        // Simulates an app restart: a fresh store over the same persisted values.
+        val second = SettingsStore(persistence)
+        assertEquals(ReleaseChannel.Experimental, second.releaseChannel.value)
+    }
+
+    @Test
+    fun releaseChannel_unknown_persisted_value_falls_back_to_stable() {
+        val persistence = FakePersistence()
+        persistence.putString(SettingsStore.KEY_RELEASE_CHANNEL, "Bogus")
+
+        val store = SettingsStore(persistence)
+        assertEquals(ReleaseChannel.Stable, store.releaseChannel.value)
+    }
+
+    @Test
+    fun setAutoCheckUpdates_updates_stateflow_and_persists() {
+        val persistence = FakePersistence()
+        val store = SettingsStore(persistence)
+
+        store.setAutoCheckUpdates(false)
+        assertFalse(store.autoCheckUpdates.value)
+        assertFalse(persistence.getBoolean(SettingsStore.KEY_AUTO_CHECK_UPDATES, true))
+
+        store.setAutoCheckUpdates(true)
+        assertTrue(store.autoCheckUpdates.value)
+        assertTrue(persistence.getBoolean(SettingsStore.KEY_AUTO_CHECK_UPDATES, true))
+    }
+
+    @Test
+    fun autoCheckUpdates_survives_restart() {
+        val persistence = FakePersistence()
+        val first = SettingsStore(persistence)
+        first.setAutoCheckUpdates(false)
+
+        // Simulates an app restart: a fresh store over the same persisted values.
+        val second = SettingsStore(persistence)
+        assertFalse(second.autoCheckUpdates.value)
+    }
+
+    @Test
+    fun setSkippedReleaseTag_updates_stateflow_and_persists() {
+        val persistence = FakePersistence()
+        val store = SettingsStore(persistence)
+
+        store.setSkippedReleaseTag("v1.0.0")
+        assertEquals("v1.0.0", store.skippedReleaseTag.value)
+        assertEquals("v1.0.0", persistence.getString(SettingsStore.KEY_SKIPPED_RELEASE_TAG, ""))
+    }
+
+    @Test
+    fun skippedReleaseTag_survives_restart() {
+        val persistence = FakePersistence()
+        val first = SettingsStore(persistence)
+        first.setSkippedReleaseTag("v1.0.0")
+
+        // Simulates an app restart: a fresh store over the same persisted values.
+        val second = SettingsStore(persistence)
+        assertEquals("v1.0.0", second.skippedReleaseTag.value)
+    }
+
+    @Test
+    fun setSkippedReleaseTag_null_persists_empty_string_sentinel() {
+        val persistence = FakePersistence()
+        val store = SettingsStore(persistence)
+
+        // SharedPreferences cannot store null, so "no skip" is persisted as the empty string.
+        store.setSkippedReleaseTag(null)
+        assertNull(store.skippedReleaseTag.value)
+        assertEquals("", persistence.getString(SettingsStore.KEY_SKIPPED_RELEASE_TAG, ""))
+
+        // A fresh store reads the sentinel back as null.
+        val second = SettingsStore(persistence)
+        assertNull(second.skippedReleaseTag.value)
     }
 
     @Test

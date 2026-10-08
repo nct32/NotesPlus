@@ -1,10 +1,12 @@
 package com.nct32.notesplus.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nct32.notesplus.data.Note
 import com.nct32.notesplus.data.NotesRepository
 import com.nct32.notesplus.settings.AppSettings
+import com.nct32.notesplus.update.UpdateManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +37,7 @@ sealed interface NoteListLayout {
  * of them change.
  */
 class NotesViewModel(
-    private val repository: NotesRepository = NotesRepository.instance
+    private val repository: NotesRepository = NotesRepository.instance,
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -219,4 +221,80 @@ class NotesViewModel(
 
     /** Returns how many notes are currently assigned to [folder]. */
     fun folderNoteCount(folder: String): Int = repository.folderNoteCount(folder)
+
+    // ------------------------------------------------------------------
+    // Update check + APK download (delegated to the process-wide UpdateManager)
+    // ------------------------------------------------------------------
+
+    /**
+     * The newest available release for the user's channel (see
+     * [UpdateManager.availableUpdate]). Shown as a dismissible banner on the notes list.
+     */
+    val availableUpdate: StateFlow<com.nct32.notesplus.update.UpdateInfo?> = UpdateManager.availableUpdate
+
+    /**
+     * Whether the "Update available" dialog should be shown (see [UpdateManager.dialogVisible]).
+     * Dismissal is per-session only — the update stays available so the banner can offer
+     * it again later.
+     */
+    val updateDialogVisible: StateFlow<Boolean> = UpdateManager.dialogVisible
+
+    /**
+     * Download state for the update banner (see [UpdateManager.downloadProgress]): `null`
+     * when idle, a `Float` in `0..1` while downloading.
+     */
+    val downloadProgress: StateFlow<Float?> = UpdateManager.downloadProgress
+
+    /** A non-null message when the last download/install attempt failed (see [UpdateManager.downloadError]). */
+    val downloadError: StateFlow<String?> = UpdateManager.downloadError
+
+    /**
+     * Starts the one-shot update check for this app process (delegates to
+     * [UpdateManager.maybeAutoCheck], which runs at most once per process and only when
+     * the user has enabled auto-check).
+     */
+    fun checkForUpdate(context: Context?) {
+        UpdateManager.maybeAutoCheck()
+    }
+
+    /**
+     * Runs a manual update check in the background (delegates to
+     * [UpdateManager.checkForUpdateDirect]) — always runs, regardless of the auto-check
+     * preference or the once-per-process flag.
+     */
+    fun checkForUpdateManual() {
+        UpdateManager.checkForUpdateDirect()
+    }
+
+    /** Dismisses the update dialog for this session only (delegates to [UpdateManager.dismissUpdate]). */
+    fun dismissUpdate() {
+        UpdateManager.dismissUpdate()
+    }
+
+    /**
+     * Skips the currently offered release: persists its tag (delegates to
+     * [UpdateManager.skipVersion]) so this exact version is never offered again; a newer
+     * release will still prompt.
+     */
+    fun skipVersion() {
+        UpdateManager.skipVersion()
+    }
+
+    /** Clears a previously shown download error (delegates to [UpdateManager.clearDownloadError]). */
+    fun clearDownloadError() {
+        UpdateManager.clearDownloadError()
+    }
+
+    /**
+     * Downloads the available update's APK and launches the system installer when done
+     * (delegates to [UpdateManager.downloadUpdate]).
+     */
+    fun downloadUpdate(context: Context) {
+        UpdateManager.downloadUpdate(context)
+    }
+
+    /** Cancels an in-flight APK download (delegates to [UpdateManager.cancelDownload]). */
+    fun cancelDownload() {
+        UpdateManager.cancelDownload()
+    }
 }

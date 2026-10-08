@@ -3,6 +3,11 @@ package com.nct32.notesplus.ui
 import com.nct32.notesplus.data.NotesRepository
 import com.nct32.notesplus.data.db.FakeFolderDao
 import com.nct32.notesplus.data.db.FakeNoteDao
+import com.nct32.notesplus.settings.AppSettings
+import com.nct32.notesplus.update.GitHubAsset
+import com.nct32.notesplus.update.GitHubRelease
+import com.nct32.notesplus.update.UpdateCheckResult
+import com.nct32.notesplus.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,6 +24,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -267,5 +273,100 @@ class NotesViewModelTest {
         // Restore defaults so other tests are unaffected.
         viewModel.setAutocorrectEnabled(true)
         viewModel.setSummarizeEnabled(true)
+    }
+
+    // --- Update flow (delegated to the process-wide UpdateManager) ----------
+
+    /**
+     * The update logic now lives in [UpdateManager] (process-wide). These tests verify the
+     * thin delegation: the ViewModel exposes the manager's state flows and forwards its
+     * actions, so the (still-in-place) NoteListScreen keeps compiling and behaving.
+     */
+
+    @Test
+    fun availableUpdate_exposes_update_manager_state() {
+        val info = com.nct32.notesplus.update.UpdateInfo(
+            release = GitHubRelease(tag_name = "v1.0.0"),
+            asset = GitHubAsset(name = "NotesPlus-v1.0.0.apk"),
+        )
+        UpdateManager.setAvailableUpdateForTesting(info)
+
+        // The ViewModel's flow is the manager's flow: same value, same instance.
+        assertSame(UpdateManager.availableUpdate, viewModel.availableUpdate)
+        assertEquals("v1.0.0", viewModel.availableUpdate.value?.release?.tag_name)
+
+        UpdateManager.resetForTesting()
+    }
+
+    @Test
+    fun updateDialogVisible_exposes_manager_dialog_visible() {
+        assertSame(UpdateManager.dialogVisible, viewModel.updateDialogVisible)
+        assertFalse(viewModel.updateDialogVisible.value)
+
+        UpdateManager.dismissUpdate()
+        assertFalse(viewModel.updateDialogVisible.value)
+
+        UpdateManager.resetForTesting()
+    }
+
+    @Test
+    fun checkForUpdate_delegates_to_manager_auto_check() {
+        // The manager's maybeAutoCheck() is the one-shot entry point; with auto-check
+        // disabled it must not start a check (and therefore must not touch the network).
+        AppSettings.instance.setAutoCheckUpdates(false)
+        viewModel.checkForUpdate(null as android.content.Context?)
+        assertNull(viewModel.availableUpdate.value)
+
+        AppSettings.resetForTesting()
+        UpdateManager.resetForTesting()
+    }
+
+    @Test
+    fun dismissUpdate_delegates_to_manager() {
+        // Dismissal hides the dialog but keeps the available update (banner can re-offer).
+        UpdateManager.dismissUpdate()
+        assertFalse(viewModel.updateDialogVisible.value)
+
+        UpdateManager.resetForTesting()
+    }
+
+    @Test
+    fun checkForUpdateManual_delegates_to_manager_direct_check() = runTest(dispatcher) {
+        // A manual check bypasses the auto-check preference and the once-per-process flag,
+        // so it must run even with auto-check disabled.
+        AppSettings.instance.setAutoCheckUpdates(false)
+        UpdateManager.updateCheckProvider = { _, _ ->
+            UpdateCheckResult.UpdateAvailable(
+                release = GitHubRelease(tag_name = "v1.0.0"),
+                asset = GitHubAsset(name = "NotesPlus-v1.0.0.apk"),
+            )
+        }
+        UpdateManager.installedVersionProvider = { "v0.1.0" }
+
+        viewModel.checkForUpdateManual()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.updateDialogVisible.value)
+        assertEquals("v1.0.0", viewModel.availableUpdate.value?.tag)
+
+        UpdateManager.resetForTesting()
+        AppSettings.resetForTesting()
+    }
+
+    @Test
+    fun skipVersion_delegates_to_manager() {
+        val info = com.nct32.notesplus.update.UpdateInfo(
+            release = GitHubRelease(tag_name = "v1.0.0"),
+            asset = GitHubAsset(name = "NotesPlus-v1.0.0.apk"),
+        )
+        UpdateManager.setAvailableUpdateForTesting(info)
+
+        viewModel.skipVersion()
+
+        assertEquals("v1.0.0", AppSettings.instance.skippedReleaseTag.value)
+        assertFalse(viewModel.updateDialogVisible.value)
+        assertNull(viewModel.availableUpdate.value)
+
+        UpdateManager.resetForTesting()
     }
 }

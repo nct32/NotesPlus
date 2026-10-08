@@ -13,6 +13,7 @@ import com.nct32.notesplus.settings.AppSettings
 import com.nct32.notesplus.settings.ThemeMode
 import com.nct32.notesplus.ui.NotesApp
 import com.nct32.notesplus.ui.theme.NotesTheme
+import com.nct32.notesplus.update.UpdateManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class MainActivity : ComponentActivity() {
@@ -21,6 +22,9 @@ class MainActivity : ComponentActivity() {
         // Bind the shared settings store to SharedPreferences-backed persistence so user
         // toggles survive app restarts.
         AppSettings.init(applicationContext)
+        // Bind the process-wide update manager (seeds the skipped-release tag from settings
+        // and captures the context used to read the installed version name).
+        UpdateManager.init(applicationContext)
         // Initialize the shared Room database (internal storage) so the repositories can read
         // and write notes / reminders / folders. Must happen before any UI reads the data.
         AppDatabase.init(applicationContext)
