@@ -19,4 +19,4 @@ Currently implemented features:
 * Android 6+ (API 23)
 * A way to install APK files
 ------------
-Note: The whole app is fully written by Qwen 3.5, with a few touchups i did myself. Just trying out coding with AI.
+Note: The whole app is fully written by Qwen-3.8-27b, with a few touchups i did myself. Just trying out coding with AI.
